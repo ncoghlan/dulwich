@@ -29,7 +29,7 @@ import logging
 import os
 import re
 import sys
-from collections.abc import Iterable, Iterator, KeysView, MutableMapping
+from collections.abc import Iterable, Iterator, KeysView, MutableMapping, ValuesView
 from contextlib import suppress
 from pathlib import Path
 from typing import (
@@ -42,6 +42,9 @@ from typing import (
 )
 
 from .file import GitFile
+
+ConfigKey = Union[str, bytes, tuple[Union[str, bytes], ...]]
+ConfigValue = Union[str, bytes, bool, int]
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +139,7 @@ def match_glob_pattern(value: str, pattern: str) -> bool:
         raise ValueError(f"Invalid glob pattern {pattern!r}: {e}")
 
 
-def lower_key(key):
+def lower_key(key: ConfigKey) -> ConfigKey:
     if isinstance(key, (bytes, str)):
         return key.lower()
 
@@ -156,7 +159,7 @@ class CaseInsensitiveOrderedMultiDict(MutableMapping):
         self._keyed: dict[Any, Any] = {}
 
     @classmethod
-    def make(cls, dict_in=None):
+    def make(cls, dict_in=None) -> "CaseInsensitiveOrderedMultiDict":
         if isinstance(dict_in, cls):
             return dict_in
 
@@ -179,13 +182,13 @@ class CaseInsensitiveOrderedMultiDict(MutableMapping):
     def keys(self) -> KeysView[tuple[bytes, ...]]:
         return self._keyed.keys()
 
-    def items(self):
+    def items(self) -> Iterator[tuple[ConfigKey, ConfigValue]]:
         return iter(self._real)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[ConfigKey]:
         return self._keyed.__iter__()
 
-    def values(self):
+    def values(self) -> ValuesView[ConfigValue]:
         return self._keyed.values()
 
     def __setitem__(self, key, value) -> None:
@@ -206,10 +209,12 @@ class CaseInsensitiveOrderedMultiDict(MutableMapping):
             if lower_key(actual) == key:
                 del self._real[i]
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: ConfigKey) -> ConfigValue:
         return self._keyed[lower_key(item)]
 
-    def get(self, key, default=SENTINEL):
+    def get(
+        self, key: ConfigKey, default=SENTINEL
+    ) -> Union[ConfigValue, "CaseInsensitiveOrderedMultiDict"]:
         try:
             return self[key]
         except KeyError:
@@ -220,13 +225,13 @@ class CaseInsensitiveOrderedMultiDict(MutableMapping):
 
         return default
 
-    def get_all(self, key):
+    def get_all(self, key: ConfigKey) -> Iterator[ConfigValue]:
         key = lower_key(key)
         for actual, value in self._real:
             if lower_key(actual) == key:
                 yield value
 
-    def setdefault(self, key, default=SENTINEL):
+    def setdefault(self, key: ConfigKey, default=SENTINEL) -> ConfigValue:
         try:
             return self[key]
         except KeyError:
@@ -382,7 +387,7 @@ class ConfigDict(Config, MutableMapping[Section, MutableMapping[Name, Value]]):
         return self._values.__len__()
 
     @classmethod
-    def _parse_setting(cls, name: str):
+    def _parse_setting(cls, name: str) -> tuple[str, Optional[str], str]:
         parts = name.split(".")
         if len(parts) == 3:
             return (parts[0], parts[1], parts[2])
@@ -872,7 +877,7 @@ class ConfigFile(ConfigDict):
             # Use provided file opener or default to GitFile
             if file_opener is None:
 
-                def opener(path):
+                def opener(path: Union[str, os.PathLike]) -> BinaryIO:
                     return GitFile(path, "rb")
             else:
                 opener = file_opener
@@ -1076,7 +1081,7 @@ class ConfigFile(ConfigDict):
                 f.write(b"\t" + key + b" = " + value + b"\n")
 
 
-def get_xdg_config_home_path(*path_segments):
+def get_xdg_config_home_path(*path_segments: str) -> str:
     xdg_config_home = os.environ.get(
         "XDG_CONFIG_HOME",
         os.path.expanduser("~/.config/"),
@@ -1084,7 +1089,7 @@ def get_xdg_config_home_path(*path_segments):
     return os.path.join(xdg_config_home, *path_segments)
 
 
-def _find_git_in_win_path():
+def _find_git_in_win_path() -> Iterator[str]:
     for exe in ("git.exe", "git.cmd"):
         for path in os.environ.get("PATH", "").split(";"):
             if os.path.exists(os.path.join(path, exe)):
@@ -1100,7 +1105,7 @@ def _find_git_in_win_path():
                 break
 
 
-def _find_git_in_win_reg():
+def _find_git_in_win_reg() -> Iterator[str]:
     import platform
     import winreg
 
@@ -1126,7 +1131,7 @@ def _find_git_in_win_reg():
 #   - %PROGRAMFILES%/Git/etc/gitconfig - Git for Windows (msysgit) config dir
 #     Used if CGit installation (Git/bin/git.exe) is found in PATH in the
 #     system registry
-def get_win_system_paths():
+def get_win_system_paths() -> Iterator[str]:
     if "PROGRAMDATA" in os.environ:
         yield os.path.join(os.environ["PROGRAMDATA"], "Git", "config")
 
